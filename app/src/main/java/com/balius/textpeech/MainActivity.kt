@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -23,16 +25,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mContext: Context
     private lateinit var binding: ActivityMainBinding
 
+    private val handler = Handler()
+    private var dotCount = 0
+    private val maxDots = 3
+
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
 
     private var selectedLanguage = "en" // Default "en selected"
+    private var isListening = false // وضعیت گوش دادن
+
+    private var resultText =""
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mContext = this
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+
 
         setListeners()
         checkPermissions()
@@ -43,24 +55,33 @@ class MainActivity : AppCompatActivity() {
 
     private fun setListeners() {
         binding.btnStartListen.setOnClickListener {
-            startListening()
+            Log.e("setListeners()", "setListeners()")
+            handler.post(updateTextRunnable)
+            binding.tvListening.visibility = View.VISIBLE
+            if (!isListening) {
+                startListening()
+            }
+        }
+
+        binding.btnPause.setOnClickListener {
+            Log.e("setListeners()", "btn Pause Listening")
+            handler.removeCallbacks(updateTextRunnable)
+            binding.tvListening.visibility = View.GONE
+            if (isListening) {
+                stopListening()
+            }
+        }
+
+
+        binding.imgDelete.setOnClickListener {
+            resultText = ""
+            binding.textView1.text = resultText
         }
     }
 
-    private fun checkPermissions() {
-        val permissionCheck =
-            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.RECORD_AUDIO)
-        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this@MainActivity,
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                PERMISSIONS_REQUEST_RECORD_AUDIO
-            )
-            return
-        }
-    }
 
     private fun resetSpeechRecognizer() {
+        Log.e("resetSpeechRecognizer()", "resetSpeechRecognizer()")
         if (speechRecognizer != null) speechRecognizer!!.destroy()
         speechRecognizer = SpeechRecognizer.createSpeechRecognizer(mContext)
         errorLog(
@@ -72,7 +93,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setRecogniserIntent() {
+        Log.e("setRecogniserIntent()", "setRecogniserIntent()")
         recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+
         recognizerIntent!!.putExtra(
             RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,
             selectedLanguage
@@ -85,7 +108,150 @@ class MainActivity : AppCompatActivity() {
             RecognizerIntent.EXTRA_LANGUAGE_MODEL,
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         )
-        recognizerIntent!!.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, RESULTS_LIMIT)
+        }
+
+
+    private fun startListening() {
+        isListening = true
+        speechRecognizer!!.startListening(recognizerIntent)
+
+        Log.e("startListening()", "startListening()")
+    }
+
+    private fun stopListening() {
+        isListening = false
+        speechRecognizer!!.stopListening()
+
+
+        Log.e("stopListening()", "stopListening()")
+    }
+
+    public override fun onResume() {
+        errorLog("resume")
+        super.onResume()
+        resetSpeechRecognizer()
+
+    }
+
+    override fun onPause() {
+        errorLog("pause")
+        super.onPause()
+        Log.e("onPause", "onPause")
+        speechRecognizer!!.stopListening()
+    }
+
+    override fun onStop() {
+        errorLog("stop")
+        super.onStop()
+        if (speechRecognizer != null) {
+            speechRecognizer!!.destroy()
+        }
+    }
+
+
+
+    private val mRecognitionListener = object : RecognitionListener {
+        override fun onBeginningOfSpeech() {
+            errorLog("onBeginningOfSpeech")
+            /*   binding.progressBar1.isIndeterminate = false
+               binding.progressBar1.max = 10*/
+        }
+
+        override fun onBufferReceived(buffer: ByteArray) {
+            errorLog("onBufferReceived: $buffer")
+        }
+
+        override fun onEndOfSpeech() {
+            errorLog("onEndOfSpeech")
+            //   binding.progressBar1.isIndeterminate = true
+        }
+
+        override fun onResults(results: Bundle) {
+            errorLog("onResults")
+            val matches: ArrayList<String>? = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+             //= binding.textView1.text.toString() // Get current text
+            Log.e("result", matches.toString())
+            Log.e("result2", matches?.size.toString())
+
+            Log.e("result3", matches?.get(0).toString())
+            resultText += " ${matches?.get(0)}"
+
+            binding.textView1.text = resultText // Update the TextView
+            if (isListening) {
+                resetSpeechRecognizer()
+                startListening()
+            }
+        }
+        override fun onPartialResults(partialResults: Bundle) {
+             errorLog("onPartialResults")
+           /* val matches: ArrayList<String>? = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            var partialText = binding.textView1.text.toString()
+
+            partialText += " ${matches?.get(0)}"
+
+          *//*  for (result in matches!!) {
+                Log.e("Presult", result)
+                partialText += " $result"
+                Log.e("Presult2", result)
+            }*//*
+            binding.textView1.text = partialText */// Update the TextView
+        }
+
+        override fun onError(errorCode: Int) {
+            val errorMessage = getErrorText(errorCode)
+            errorLog("FAILED $errorMessage")
+            binding.tvError.text = errorMessage
+
+            if (isListening) {
+                resetSpeechRecognizer()
+                startListening()
+            }
+        }
+
+        override fun onEvent(arg0: Int, arg1: Bundle) {
+            errorLog("onEvent")
+        }
+
+
+
+        override fun onReadyForSpeech(arg0: Bundle) {
+            errorLog("onReadyForSpeech")
+        }
+
+        override fun onRmsChanged(rmsdB: Float) {
+            //binding.progressBar1.progress = rmsdB.toInt()
+        }
+    }
+
+    //for txt listening
+    private val updateTextRunnable = object : Runnable {
+        override fun run() {
+            dotCount = (dotCount + 1) % (maxDots + 1)
+            val dots = ".".repeat(dotCount)
+            binding.tvListening.text = "Listening$dots"
+            handler.postDelayed(this, 500) // Update every 500 milliseconds
+        }
+    }
+
+    companion object {
+        private const val PERMISSIONS_REQUEST_RECORD_AUDIO = 1
+        private const val RESULTS_LIMIT = 5
+        private const val IS_CONTINUES_LISTEN = true
+    }
+
+
+    //for permissions
+    private fun checkPermissions() {
+        val permissionCheck =
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.RECORD_AUDIO)
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this@MainActivity,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                PERMISSIONS_REQUEST_RECORD_AUDIO
+            )
+            return
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -103,38 +269,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun startListening() {
-        speechRecognizer!!.startListening(recognizerIntent)
-        binding.progressBar1.visibility = View.VISIBLE
-    }
-
-    public override fun onResume() {
-        errorLog("resume")
-        super.onResume()
-        resetSpeechRecognizer()
-        if (IS_CONTINUES_LISTEN) {
-            startListening()
-        }
-    }
-
-    override fun onPause() {
-        errorLog("pause")
-        super.onPause()
-        speechRecognizer!!.stopListening()
-    }
-
-    override fun onStop() {
-        errorLog("stop")
-        super.onStop()
-        if (speechRecognizer != null) {
-            speechRecognizer!!.destroy()
-        }
-    }
-
-
+    //for lang
     private fun prepareLocales() {
-        val availableLocales =
-            Locale.getAvailableLocales() //Alternatively you can check https://cloud.google.com/speech-to-text/docs/speech-to-text-supported-languages
+        val availableLocales = Locale.getAvailableLocales()
 
         val adapterLocalization: ArrayAdapter<Any?> = ArrayAdapter<Any?>(
             mContext,
@@ -156,7 +293,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {
-//                TODO("Not yet implemented")
+                // TODO
             }
         }
 
@@ -169,67 +306,6 @@ class MainActivity : AppCompatActivity() {
                 binding.spinner1.setSelection(i)
                 break
             }
-        }
-    }
-
-    private val mRecognitionListener = object : RecognitionListener {
-        override fun onBeginningOfSpeech() {
-            errorLog("onBeginningOfSpeech")
-            binding.progressBar1.isIndeterminate = false
-            binding.progressBar1.max = 10
-        }
-
-        override fun onBufferReceived(buffer: ByteArray) {
-            errorLog("onBufferReceived: $buffer")
-        }
-
-        override fun onEndOfSpeech() {
-            errorLog("onEndOfSpeech")
-            binding.progressBar1.isIndeterminate = true
-            speechRecognizer!!.stopListening()
-        }
-
-        override fun onResults(results: Bundle) {
-            errorLog("onResults")
-            val matches: ArrayList<String>? = results
-                .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            var text = ""
-            for (result in matches!!) text += """
-     $result
-     
-     """.trimIndent()
-            binding.textView1.text = text
-            if (IS_CONTINUES_LISTEN) {
-                startListening()
-            } else {
-                binding.progressBar1.visibility = View.GONE
-            }
-        }
-
-        override fun onError(errorCode: Int) {
-            val errorMessage = getErrorText(errorCode)
-            errorLog("FAILED $errorMessage")
-            binding.tvError.text = errorMessage
-
-            // rest voice recogniser
-            resetSpeechRecognizer()
-            startListening()
-        }
-
-        override fun onEvent(arg0: Int, arg1: Bundle) {
-            errorLog("onEvent")
-        }
-
-        override fun onPartialResults(arg0: Bundle) {
-            errorLog("onPartialResults")
-        }
-
-        override fun onReadyForSpeech(arg0: Bundle) {
-            errorLog("onReadyForSpeech")
-        }
-
-        override fun onRmsChanged(rmsdB: Float) {
-            binding.progressBar1.progress = rmsdB.toInt()
         }
     }
 
